@@ -15,12 +15,17 @@ MODEL_PATH = os.path.join(BASE_DIR, "cnn_lstm_mitbih_final.keras")
 
 print("Loading model from:", MODEL_PATH)
 
+ecg_model = None
+
 try:
-    ecg_model = tf.keras.models.load_model(MODEL_PATH)
+    ecg_model = tf.keras.models.load_model(
+        MODEL_PATH,
+        compile=False
+    )
     print("Model loaded successfully")
+
 except Exception as e:
-    print("Model loading failed:", e)
-    ecg_model = None
+    print("Model loading failed:", str(e))
 
 
 # -------------------------------------------------
@@ -140,6 +145,7 @@ def read_latest():
     d = requests.get(url, timeout=5).json()
 
     ecg = float(d.get("field4") or 0)
+
     if ecg != 0:
         last_valid_ecg = ecg
 
@@ -155,7 +161,9 @@ def read_latest():
 
 
 def read_ecg_window(size=180):
+
     url = f"https://api.thingspeak.com/channels/{THINGSPEAK_CHANNEL_ID}/feeds.json?api_key={THINGSPEAK_READ_API_KEY}&results={size}"
+
     feeds = requests.get(url, timeout=5).json().get("feeds", [])
 
     ecg = [
@@ -198,6 +206,7 @@ def thingspeak_final_risk():
     sensors["gsr"] = adjusted_gsr
 
     ecg_tensor = tf.reshape(normalize_ecg(ecg_window), (1, 180, 1))
+
     prediction = ecg_model.predict(ecg_tensor, verbose=0)
 
     predicted_class = int(tf.argmax(prediction, axis=1)[0])
