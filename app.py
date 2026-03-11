@@ -1,8 +1,10 @@
+import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import tensorflow as tf
 import numpy as np
-import os
 import requests
 
 # -------------------------------------------------
@@ -13,7 +15,13 @@ MODEL_PATH = os.path.join(BASE_DIR, "cnn_lstm_mitbih_final.keras")
 
 print("Loading model from:", MODEL_PATH)
 
-ecg_model = tf.keras.models.load_model(MODEL_PATH)
+try:
+    ecg_model = tf.keras.models.load_model(MODEL_PATH)
+    print("Model loaded successfully")
+except Exception as e:
+    print("Model loading failed:", e)
+    ecg_model = None
+
 
 # -------------------------------------------------
 # ThingSpeak Configuration
@@ -47,10 +55,12 @@ def normalize_ecg(signal):
     signal = np.array(signal, dtype=np.float32)
     return (signal - np.mean(signal)) / (np.std(signal) + 1e-6)
 
+
 def map_ecg_status(predicted_class, confidence):
     if predicted_class == 1 and confidence >= 0.90:
         return "VARIATION"
     return "STABLE"
+
 
 # -------------------------------------------------
 # SpO2 Calibration
@@ -70,6 +80,7 @@ def calibrate_spo2(raw):
 
     return f"{calibrated}%", "Normal", "Normal"
 
+
 # -------------------------------------------------
 # GSR Noise Adjustment
 # -------------------------------------------------
@@ -83,10 +94,12 @@ def adjust_gsr(gsr_value):
 
     return gsr_value
 
+
 def classify_gsr(gsr_value):
     if gsr_value > 700:
         return "Stressed"
     return "Not Stressed"
+
 
 # -------------------------------------------------
 # Risk Logic
@@ -107,6 +120,7 @@ def final_risk(ecg_status):
 
     return "LOW", "Normal condition"
 
+
 # -------------------------------------------------
 # Motion Detection
 # -------------------------------------------------
@@ -114,6 +128,7 @@ def detect_motion(ax, ay, az, threshold=2000):
     magnitude = np.sqrt(ax**2 + ay**2 + az**2)
     status = "MOTION" if magnitude > threshold else "REST"
     return status, round(float(magnitude), 2)
+
 
 # -------------------------------------------------
 # ThingSpeak Readers
@@ -138,6 +153,7 @@ def read_latest():
         "az": float(d.get("field3") or 0),
     }
 
+
 def read_ecg_window(size=180):
     url = f"https://api.thingspeak.com/channels/{THINGSPEAK_CHANNEL_ID}/feeds.json?api_key={THINGSPEAK_READ_API_KEY}&results={size}"
     feeds = requests.get(url, timeout=5).json().get("feeds", [])
@@ -156,6 +172,7 @@ def read_ecg_window(size=180):
 
     return ecg[-size:]
 
+
 # -------------------------------------------------
 # API Endpoint
 # -------------------------------------------------
@@ -163,8 +180,12 @@ def read_ecg_window(size=180):
 def home():
     return {"status": "HeartSense AI Backend Running"}
 
+
 @app.get("/thingspeak-final-risk")
 def thingspeak_final_risk():
+
+    if ecg_model is None:
+        return {"error": "Model not loaded"}
 
     ecg_window = read_ecg_window()
 
