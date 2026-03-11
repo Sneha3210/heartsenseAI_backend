@@ -1,6 +1,7 @@
 fastapi
 uvicorn
 tensorflow==2.15.0
+keras==3.0.5
 numpy
 pandas
 requests
