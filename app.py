@@ -1,3 +1,4 @@
+```python
 import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
@@ -6,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import tensorflow as tf
 import numpy as np
 import requests
+import traceback
 
 # -------------------------------------------------
 # Load ECG Model
@@ -13,19 +15,23 @@ import requests
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "cnn_lstm_mitbih_final.keras")
 
-print("Loading model from:", MODEL_PATH)
+print("Looking for model at:", MODEL_PATH)
 
 ecg_model = None
 
 try:
+    print("Loading ECG AI model...")
     ecg_model = tf.keras.models.load_model(
         MODEL_PATH,
-        compile=False
+        compile=False,
+        safe_mode=False
     )
     print("Model loaded successfully")
 
 except Exception as e:
-    print("Model loading failed:", str(e))
+    print("Model loading failed")
+    traceback.print_exc()
+    ecg_model = None
 
 
 # -------------------------------------------------
@@ -52,6 +58,7 @@ app.add_middleware(
 # -------------------------------------------------
 last_valid_ecg = 0.0
 abnormal_count = 0
+
 
 # -------------------------------------------------
 # ECG Processing
@@ -189,6 +196,14 @@ def home():
     return {"status": "HeartSense AI Backend Running"}
 
 
+@app.get("/health")
+def health():
+    return {
+        "backend": "running",
+        "model_loaded": ecg_model is not None
+    }
+
+
 @app.get("/thingspeak-final-risk")
 def thingspeak_final_risk():
 
@@ -251,3 +266,4 @@ def thingspeak_final_risk():
             }
         }
     }
+```
