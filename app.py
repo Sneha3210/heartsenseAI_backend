@@ -9,7 +9,10 @@ import requests
 # Load ECG Model
 # -------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "model", "cnn_lstm_mitbih_final.keras")
+MODEL_PATH = os.path.join(BASE_DIR, "cnn_lstm_mitbih_final.keras")
+
+print("Loading model from:", MODEL_PATH)
+
 ecg_model = tf.keras.models.load_model(MODEL_PATH)
 
 # -------------------------------------------------
@@ -68,16 +71,13 @@ def calibrate_spo2(raw):
     return f"{calibrated}%", "Normal", "Normal"
 
 # -------------------------------------------------
-# GSR Noise Adjustment (Tier Based)
+# GSR Noise Adjustment
 # -------------------------------------------------
 def adjust_gsr(gsr_value):
     gsr_value = float(gsr_value)
 
-    # 🔹 Very High Spike
     if gsr_value >= 1000:
         gsr_value -= 500
-
-    # 🔹 Medium Spike
     elif gsr_value >= 600:
         gsr_value -= 300
 
@@ -159,8 +159,13 @@ def read_ecg_window(size=180):
 # -------------------------------------------------
 # API Endpoint
 # -------------------------------------------------
+@app.get("/")
+def home():
+    return {"status": "HeartSense AI Backend Running"}
+
 @app.get("/thingspeak-final-risk")
 def thingspeak_final_risk():
+
     ecg_window = read_ecg_window()
 
     if not ecg_window:
@@ -168,7 +173,6 @@ def thingspeak_final_risk():
 
     sensors = read_latest()
 
-    # ✅ Apply GSR Adjustment
     adjusted_gsr = adjust_gsr(sensors["gsr"])
     sensors["gsr"] = adjusted_gsr
 
@@ -179,8 +183,13 @@ def thingspeak_final_risk():
     confidence = float(tf.reduce_max(prediction))
 
     ecg_status = map_ecg_status(predicted_class, confidence)
-    spo2_value, spo2_condition, spo2_risk = calibrate_spo2(sensors["spo2_raw"])
+
+    spo2_value, spo2_condition, spo2_risk = calibrate_spo2(
+        sensors["spo2_raw"]
+    )
+
     gsr_status = classify_gsr(adjusted_gsr)
+
     risk, alert = final_risk(ecg_status)
 
     motion_status, accel_magnitude = detect_motion(
