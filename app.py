@@ -23,17 +23,21 @@ model_error = None
 
 try:
 
-    # If H5 model already exists → load it
+    # If converted model exists
     if os.path.exists(H5_MODEL):
         print("Loading existing H5 model")
         ecg_model = tf.keras.models.load_model(H5_MODEL, compile=False)
 
-    # Otherwise convert from .keras
     else:
         print("Loading KERAS model")
-        temp_model = tf.keras.models.load_model(KERAS_MODEL, compile=False)
 
-        print("Converting model to H5")
+        temp_model = tf.keras.models.load_model(
+            KERAS_MODEL,
+            compile=False,
+            safe_mode=False
+        )
+
+        print("Saving converted H5 model")
         temp_model.save(H5_MODEL)
 
         ecg_model = temp_model
@@ -48,10 +52,10 @@ except Exception as e:
 
 
 # -------------------------------------------------
-# FastAPI App
+# FastAPI
 # -------------------------------------------------
 
-app = FastAPI(title="HeartSense AI – Medical Decision Engine")
+app = FastAPI(title="HeartSense AI Backend")
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,10 +65,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# -------------------------------------------------
-# API Endpoints
-# -------------------------------------------------
 
 @app.get("/")
 def home():
@@ -80,11 +80,10 @@ def health():
     }
 
 
-# Debug endpoint to check files in server
 @app.get("/debug-files")
 def debug_files():
     return {
         "files_in_directory": os.listdir(BASE_DIR),
-        "keras_model_exists": os.path.exists(KERAS_MODEL),
-        "h5_model_exists": os.path.exists(H5_MODEL)
+        "keras_exists": os.path.exists(KERAS_MODEL),
+        "h5_exists": os.path.exists(H5_MODEL)
     }
