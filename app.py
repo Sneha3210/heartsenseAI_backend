@@ -56,149 +56,7 @@ app.add_middleware(
 
 
 # -------------------------------------------------
-# Global Variables
-# -------------------------------------------------
-
-last_valid_ecg = 0.0
-abnormal_count = 0
-
-
-# -------------------------------------------------
-# ECG Processing
-# -------------------------------------------------
-
-def normalize_ecg(signal):
-    signal = np.array(signal, dtype=np.float32)
-    return (signal - np.mean(signal)) / (np.std(signal) + 1e-6)
-
-
-def map_ecg_status(predicted_class, confidence):
-    if predicted_class == 1 and confidence >= 0.90:
-        return "VARIATION"
-    return "STABLE"
-
-
-# -------------------------------------------------
-# SpO2 Calibration
-# -------------------------------------------------
-
-def calibrate_spo2(raw):
-    raw = float(raw)
-
-    if raw <= 50 or raw >= 130:
-        return "--", "Invalid Reading", "Normal"
-
-    if raw < 90:
-        calibrated = 93
-    elif 90 <= raw < 96:
-        calibrated = 94
-    else:
-        calibrated = 95
-
-    return f"{calibrated}%", "Normal", "Normal"
-
-
-# -------------------------------------------------
-# GSR Noise Adjustment
-# -------------------------------------------------
-
-def adjust_gsr(gsr_value):
-    gsr_value = float(gsr_value)
-
-    if gsr_value >= 1000:
-        gsr_value -= 500
-    elif gsr_value >= 600:
-        gsr_value -= 300
-
-    return gsr_value
-
-
-def classify_gsr(gsr_value):
-    if gsr_value > 700:
-        return "Stressed"
-    return "Not Stressed"
-
-
-# -------------------------------------------------
-# Risk Logic
-# -------------------------------------------------
-
-def final_risk(ecg_status):
-    global abnormal_count
-
-    if ecg_status == "VARIATION":
-        abnormal_count += 1
-    else:
-        abnormal_count = 0
-
-    if abnormal_count >= 3:
-        return "HIGH", "Repeated heart signal variation detected"
-
-    if ecg_status == "VARIATION":
-        return "MEDIUM", "Heart signal variation detected"
-
-    return "LOW", "Normal condition"
-
-
-# -------------------------------------------------
-# Motion Detection
-# -------------------------------------------------
-
-def detect_motion(ax, ay, az, threshold=2000):
-    magnitude = np.sqrt(ax**2 + ay**2 + az**2)
-    status = "MOTION" if magnitude > threshold else "REST"
-    return status, round(float(magnitude), 2)
-
-
-# -------------------------------------------------
-# ThingSpeak Readers
-# -------------------------------------------------
-
-def read_latest():
-    global last_valid_ecg
-
-    url = f"https://api.thingspeak.com/channels/{THINGSPEAK_CHANNEL_ID}/feeds/last.json?api_key={THINGSPEAK_READ_API_KEY}"
-    d = requests.get(url, timeout=5).json()
-
-    ecg = float(d.get("field4") or 0)
-
-    if ecg != 0:
-        last_valid_ecg = ecg
-
-    return {
-        "ecg": last_valid_ecg,
-        "spo2_raw": float(d.get("field6") or 0),
-        "gsr": float(d.get("field5") or 0),
-        "temperature_f": float(d.get("field7") or 0),
-        "ax": float(d.get("field1") or 0),
-        "ay": float(d.get("field2") or 0),
-        "az": float(d.get("field3") or 0),
-    }
-
-
-def read_ecg_window(size=180):
-
-    url = f"https://api.thingspeak.com/channels/{THINGSPEAK_CHANNEL_ID}/feeds.json?api_key={THINGSPEAK_READ_API_KEY}&results={size}"
-
-    feeds = requests.get(url, timeout=5).json().get("feeds", [])
-
-    ecg = [
-        float(f["field4"])
-        for f in feeds
-        if f.get("field4") and float(f["field4"]) != 0
-    ]
-
-    if not ecg:
-        return []
-
-    if len(ecg) < size:
-        ecg += [ecg[-1]] * (size - len(ecg))
-
-    return ecg[-size:]
-
-
-# -------------------------------------------------
-# API Endpoints
+# Health Check
 # -------------------------------------------------
 
 @app.get("/")
@@ -215,65 +73,44 @@ def health():
     }
 
 
+# -------------------------------------------------
+# ThingSpeak Data Readers
+# -------------------------------------------------
+
+def read_latest():
+    url = f"https://api.thingspeak.com/channels/{THINGSPEAK_CHANNEL_ID}/feeds/last.json?api_key={THINGSPEAK_READ_API_KEY}"
+    d = requests.get(url, timeout=5).json()
+
+    return {
+        "ecg": float(d.get("field4") or 0),
+        "spo2": float(d.get("field6") or 0),
+        "gsr": float(d.get("field5") or 0),
+        "temp": float(d.get("field7") or 0)
+    }
+
+
+# -------------------------------------------------
+# Prediction Endpoint
+# -------------------------------------------------
+
 @app.get("/thingspeak-final-risk")
 def thingspeak_final_risk():
 
     if ecg_model is None:
         return {"error": "Model not loaded"}
 
-    ecg_window = read_ecg_window()
+    data = read_latest()
 
-    if not ecg_window:
-        return {"status": "WAITING", "message": "Waiting for ECG data"}
+    ecg = np.array([data["ecg"]] * 180)
+    ecg = ecg.reshape(1, 180, 1)
 
-    sensors = read_latest()
+    prediction = ecg_model.predict(ecg, verbose=0)
 
-    adjusted_gsr = adjust_gsr(sensors["gsr"])
-    sensors["gsr"] = adjusted_gsr
-
-    ecg_tensor = tf.reshape(normalize_ecg(ecg_window), (1, 180, 1))
-
-    prediction = ecg_model.predict(ecg_tensor, verbose=0)
-
-    predicted_class = int(tf.argmax(prediction, axis=1)[0])
-    confidence = float(tf.reduce_max(prediction))
-
-    ecg_status = map_ecg_status(predicted_class, confidence)
-
-    spo2_value, spo2_condition, spo2_risk = calibrate_spo2(
-        sensors["spo2_raw"]
-    )
-
-    gsr_status = classify_gsr(adjusted_gsr)
-
-    risk, alert = final_risk(ecg_status)
-
-    motion_status, accel_magnitude = detect_motion(
-        sensors["ax"], sensors["ay"], sensors["az"]
-    )
+    predicted_class = int(np.argmax(prediction))
+    confidence = float(np.max(prediction))
 
     return {
-        "ecg_status": ecg_status,
-        "risk": risk,
-        "alert": alert,
-        "confidence": round(confidence, 4),
-        "spo2": {
-            "value": spo2_value,
-            "condition": spo2_condition
-        },
-        "gsr_status": gsr_status,
-        "motion": {
-            "status": motion_status,
-            "magnitude": accel_magnitude
-        },
-        "raw_values": {
-            "ecg": sensors["ecg"],
-            "gsr": sensors["gsr"],
-            "temperature_f": sensors["temperature_f"],
-            "accelerometer": {
-                "x": sensors["ax"],
-                "y": sensors["ay"],
-                "z": sensors["az"]
-            }
-        }
+        "predicted_class": predicted_class,
+        "confidence": confidence,
+        "raw_data": data
     }
