@@ -11,6 +11,7 @@ import traceback
 # -------------------------------------------------
 # Load ECG Model
 # -------------------------------------------------
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "cnn_lstm_mitbih_final.keras")
 
@@ -36,12 +37,15 @@ except Exception as e:
 # -------------------------------------------------
 # ThingSpeak Configuration
 # -------------------------------------------------
+
 THINGSPEAK_CHANNEL_ID = "3143087"
 THINGSPEAK_READ_API_KEY = "0BUW0FE0IF72M1VH"
+
 
 # -------------------------------------------------
 # FastAPI App
 # -------------------------------------------------
+
 app = FastAPI(title="HeartSense AI – Medical Decision Engine")
 
 app.add_middleware(
@@ -52,9 +56,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # -------------------------------------------------
 # Global Variables
 # -------------------------------------------------
+
 last_valid_ecg = 0.0
 abnormal_count = 0
 
@@ -62,6 +68,7 @@ abnormal_count = 0
 # -------------------------------------------------
 # ECG Processing
 # -------------------------------------------------
+
 def normalize_ecg(signal):
     signal = np.array(signal, dtype=np.float32)
     return (signal - np.mean(signal)) / (np.std(signal) + 1e-6)
@@ -76,6 +83,7 @@ def map_ecg_status(predicted_class, confidence):
 # -------------------------------------------------
 # SpO2 Calibration
 # -------------------------------------------------
+
 def calibrate_spo2(raw):
     raw = float(raw)
 
@@ -93,8 +101,9 @@ def calibrate_spo2(raw):
 
 
 # -------------------------------------------------
-# GSR Noise Adjustment
+# GSR Processing
 # -------------------------------------------------
+
 def adjust_gsr(gsr_value):
     gsr_value = float(gsr_value)
 
@@ -115,6 +124,7 @@ def classify_gsr(gsr_value):
 # -------------------------------------------------
 # Risk Logic
 # -------------------------------------------------
+
 def final_risk(ecg_status):
     global abnormal_count
 
@@ -135,6 +145,7 @@ def final_risk(ecg_status):
 # -------------------------------------------------
 # Motion Detection
 # -------------------------------------------------
+
 def detect_motion(ax, ay, az, threshold=2000):
     magnitude = np.sqrt(ax**2 + ay**2 + az**2)
     status = "MOTION" if magnitude > threshold else "REST"
@@ -144,6 +155,7 @@ def detect_motion(ax, ay, az, threshold=2000):
 # -------------------------------------------------
 # ThingSpeak Readers
 # -------------------------------------------------
+
 def read_latest():
     global last_valid_ecg
 
@@ -188,8 +200,9 @@ def read_ecg_window(size=180):
 
 
 # -------------------------------------------------
-# API Endpoint
+# API Endpoints
 # -------------------------------------------------
+
 @app.get("/")
 def home():
     return {"status": "HeartSense AI Backend Running"}
@@ -202,6 +215,22 @@ def health():
         "model_loaded": ecg_model is not None
     }
 
+
+# ---------------- DEBUG ENDPOINT ----------------
+
+@app.get("/debug-files")
+def debug_files():
+    files = os.listdir()
+    return {
+        "files_in_directory": files,
+        "model_path": MODEL_PATH,
+        "model_exists": os.path.exists(MODEL_PATH)
+    }
+
+
+# -------------------------------------------------
+# Prediction Endpoint
+# -------------------------------------------------
 
 @app.get("/thingspeak-final-risk")
 def thingspeak_final_risk():
@@ -253,16 +282,5 @@ def thingspeak_final_risk():
         "motion": {
             "status": motion_status,
             "magnitude": accel_magnitude
-        },
-        "raw_values": {
-            "ecg": sensors["ecg"],
-            "gsr": sensors["gsr"],
-            "temperature_f": sensors["temperature_f"],
-            "accelerometer": {
-                "x": sensors["ax"],
-                "y": sensors["ay"],
-                "z": sensors["az"]
-            }
         }
     }
-
