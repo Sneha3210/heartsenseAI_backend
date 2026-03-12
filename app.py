@@ -4,8 +4,6 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import tensorflow as tf
-import numpy as np
-import requests
 import traceback
 
 # -------------------------------------------------
@@ -21,6 +19,7 @@ print("KERAS MODEL:", KERAS_MODEL)
 print("H5 MODEL:", H5_MODEL)
 
 ecg_model = None
+model_error = None
 
 try:
 
@@ -44,15 +43,9 @@ try:
 except Exception as e:
     print("Model loading failed")
     traceback.print_exc()
+    model_error = str(e)
     ecg_model = None
 
-
-# -------------------------------------------------
-# ThingSpeak Configuration
-# -------------------------------------------------
-
-THINGSPEAK_CHANNEL_ID = "3143087"
-THINGSPEAK_READ_API_KEY = "0BUW0FE0IF72M1VH"
 
 # -------------------------------------------------
 # FastAPI App
@@ -68,8 +61,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # -------------------------------------------------
-# Health Endpoint
+# API Endpoints
 # -------------------------------------------------
 
 @app.get("/")
@@ -81,5 +75,16 @@ def home():
 def health():
     return {
         "backend": "running",
-        "model_loaded": ecg_model is not None
+        "model_loaded": ecg_model is not None,
+        "model_error": model_error
+    }
+
+
+# Debug endpoint to check files in server
+@app.get("/debug-files")
+def debug_files():
+    return {
+        "files_in_directory": os.listdir(BASE_DIR),
+        "keras_model_exists": os.path.exists(KERAS_MODEL),
+        "h5_model_exists": os.path.exists(H5_MODEL)
     }
